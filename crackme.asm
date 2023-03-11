@@ -2,18 +2,27 @@
 model tiny 
 .code 
 
-org 100h
 locals @@
 
-TRUE equ byte ptr trueVal
+org 100h
+
+
+ENCRYPT_KEY equ 23d
+
+ENCRYPT_MOD equ 123d
+
+SYSTEM_CHAR equ 1Fh
 
 include src/genmac.asm
 
 Start:
 
-    call Initialization
 
     call EnterPassword
+
+    call Initialization
+
+    call CheckPassword
 
     call PrintVerdict
 
@@ -31,127 +40,156 @@ Start:
         mov ah, 02h                 ;---------------
         int 1ah                     ;get system time
 
-        or  cl, 1h                  ;can't be zero
-        mov byte ptr trueVal, cl    ;def 'TRUE'
-
-        mov byte ptr dubTrueVal, cl ;make dublicate 'TRUE' value
-
-        call EncryptPassword
+        cmp changeTrue, 0h
+        je @@uncorrupted
+            mov byte ptr fictionTrue, cl ;def 'TRUE'
+            jmp @@endif
+        @@uncorrupted:
+            mov byte ptr fictionTrue, TRUE
+        @@endif:
 
         ret
     Initialization endp 
+    
+    ;------------------------------------------------------------------
+    ;encrypts the symbol
+    ;------------------------------------------------------------------
+    ;Entry:   cl - encryption key, al - input symbol
+    ;Exit:    al - encrypt symbol
+    ;Destroy: ax, dh, si, es, df
+    ;------------------------------------------------------------------
+    EncryptSymbol proc
+
+        add al, cl  ;encrypt symbol
+            
+        xor ah, ah  ;---------------
+
+        mov dh, ENCRYPT_MOD
+        div dh              ;get al mod ENCRYPT_MOD      
+        
+        add ah, SYSTEM_CHAR ;skip omission of non-printable characters
+        mov al, ah          ;new symbol
+
+        ret
+    EncryptSymbol endp 
 
     ;------------------------------------------------------------------
-    ;password input
+    ;enter password
+    ;------------------------------------------------------------------
+    ;Entry:   none
+    ;Exit:    curPassword
+    ;Destroy: ah, al, di
+    ;------------------------------------------------------------------
+    EnterPassword proc
+
+        mov di, ds
+        mov es, di ;xchange ds, es
+
+        mov di, offset curPassword
+
+        mov ah, 01h  ;set 21 interrupts to read keystrokes
+        @@next:
+            
+            int 21h    ;read keyboard button
+            stosb
+        
+        cmp al, ASCII_CODE_ENTER 
+        jne @@next
+
+        dec di
+        mov byte ptr ds:[di], TERM_SYM
+
+        ret
+    EnterPassword endp
+
+    ;------------------------------------------------------------------
+    ;get string's hash
+    ;------------------------------------------------------------------
+    ;Assumes: string ends with a terminate symbol, ds - desired segment
+    ;Entry:   si - string addres
+    ;Exit:    ax - string's hash
+    ;Destroy: ah, al, di
+    ;------------------------------------------------------------------
+    GetHash proc
+
+        xor bx, bx  ;free bx
+        xor ax, ax  ;free ax
+        @@next:
+            
+            mov bx, HASH_PW
+            mul bx              ;mul cur hash by HASH_PW
+
+            mov bl, byte ptr ds:[si]    ;get cur symbol
+            add al, bl
+
+            inc si ;si++
+        
+        cmp byte ptr ds:[si + 1h], ASCII_CODE_ENTER 
+        jne @@next
+
+
+        ret
+    GetHash endp
+
+    ;------------------------------------------------------------------
+    ;check input password
     ;------------------------------------------------------------------
     ;Entry:   none
     ;Exit:    flagWrongPassword
     ;Destroy: ax, di, si, es, df
     ;Local var: [bp - 2] - original password length
     ;------------------------------------------------------------------
-    EnterPassword proc
-
+    CheckPassword proc
         push bp             
         mov  bp, sp         
         sub  sp, 2d * 1d    ;1 local variable
-
-        mov di, ds 
-        mov es, di          ;set correct segment    
-
+    
         mov di, offset Password  ;set addres
-
         call Strlen
+
         mov word ptr [bp - 2], bx   ;save original password length
 
         mov flagWrongPassword, FALSE
 
-        cld                      ;df = 0
-        mov di, offset Password  ;free counter
-        mov ah, 01h              ;set 21 interrupts to read keystrokes
-        @@next:
-            int 21h    ;read keyboard button
+        cld                         ;df = 0
+        mov si, offset CurPassword  ;di = addres curPasswi=ord
+        xor di, di                  ;free counter
 
-            cmp al, ASCII_CODE_ENTER 
+        mov cl, ENCRYPT_KEY
+
+        @@next:
+            lodsb
+
+            cmp al, TERM_SYM 
             je @@break
 
-            scasb ;byte ptr Password[si] ;check cur symbol with symbol 
+            call EncryptSymbol
+
+            cmp al, byte ptr Password[di] ;check curPassword symbol with original Password symbol 
             je @@isEqual
-                mov al, TRUE
+                mov al, byte ptr fictionTrue
                 mov flagWrongPassword, al
             @@isEqual:
+
+            inc di  ;di++
 
         jmp @@next
 
         @@break:
 
-        sub di, offset Password     ;get corret length read password
+        sub si, offset curPassword + 1h  ;get corret length read password
         
-        cmp di, word ptr [bp - 2]   ;check curren length password
+        
+        cmp si, word ptr [bp - 2]   ;check curren length password
         je @@curLenIscorrect
-            mov al, TRUE
+            mov al, byte ptr fictionTrue
             mov flagWrongPassword, al
         @@curLenIscorrect:
 
         mov sp, bp
         pop bp
         ret
-    EnterPassword endp 
-
-    ;------------------------------------------------------------------
-    ;password input
-    ;------------------------------------------------------------------
-    ;Entry:   none
-    ;Exit:    flagWrongPassword
-    ;Destroy: ax, di, si, es, df
-    ;Local var: [bp - 2] - original password length
-    ;------------------------------------------------------------------
-    EnterPassword proc
-
-        push bp             
-        mov  bp, sp         
-        sub  sp, 2d * 1d    ;1 local variable
-
-        mov di, ds 
-        mov es, di          ;set correct segment    
-
-        mov di, offset Password  ;set addres
-
-        call Strlen
-        mov word ptr [bp - 2], bx   ;save original password length
-
-        mov flagWrongPassword, FALSE
-
-        cld                      ;df = 0
-        mov di, offset Password  ;free counter
-        mov ah, 01h              ;set 21 interrupts to read keystrokes
-        @@next:
-            int 21h    ;read keyboard button
-
-            cmp al, ASCII_CODE_ENTER 
-            je @@break
-
-            scasb ;byte ptr Password[si] ;check cur symbol with symbol 
-            je @@isEqual
-                mov al, TRUE
-                mov flagWrongPassword, al
-            @@isEqual:
-
-        jmp @@next
-
-        @@break:
-
-        sub di, offset Password     ;get corret length read password
-        
-        cmp di, word ptr [bp - 2]   ;check curren length password
-        je @@curLenIscorrect
-            mov al, TRUE
-            mov flagWrongPassword, al
-        @@curLenIscorrect:
-
-        mov sp, bp
-        pop bp
-        ret
-    EnterPassword endp 
+    CheckPassword endp 
 
     ;------------------------------------------------------------------
     ;print verdict afrter read pasword
@@ -161,10 +199,6 @@ Start:
     ;Destroy: ah, di, si, es
     ;------------------------------------------------------------------
     PrintVerdict proc
-
-        mov ah, dubTrueVal
-        cmp ah, TRUE        ;checking that no changes 'TRUE' have taken place
-        jne @@wrongPassword
 
         cmp flagWrongPassword, FALSE
         jne @@wrongPassword
@@ -193,14 +227,18 @@ Start:
 
 flagWrongPassword db FALSE
 
-trueVal     db 0
-dubTrueVal  db 0
+pspJump dw 00h
 
-Password db "Good luck!", TERM_SYM
+fictionTrue db 0
 
-.const
+Password db 7dh, 2ah, 2ah, 1fh, 56h, 27h, 30h, 99h, 26h, 57h, 71h, 5fh, 6eh, TERM_SYM
+
 MessageSuccess db "SUCCESS", TERM_SYM
 MessageFailure db "FAILURE", TERM_SYM
+
+CurPassword db 20 dup (?)
+
+changeTrue db 0
 
 end Start
 
