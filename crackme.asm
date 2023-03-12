@@ -7,7 +7,7 @@ locals @@
 org 100h
 
 
-ENCRYPT_KEY equ 23d
+ENCRYPT_KEY equ 40d
 
 ENCRYPT_MOD equ 123d
 
@@ -108,7 +108,7 @@ Start:
     ;Assumes: string ends with a terminate symbol, ds - desired segment
     ;Entry:   si - string addres
     ;Exit:    ax - string's hash
-    ;Destroy: ah, al, di
+    ;Destroy: ax, bx, al, di
     ;------------------------------------------------------------------
     GetHash proc
 
@@ -120,11 +120,11 @@ Start:
             mul bx              ;mul cur hash by HASH_PW
 
             mov bl, byte ptr ds:[si]    ;get cur symbol
-            add al, bl
+            add ax, bx
 
             inc si ;si++
         
-        cmp byte ptr ds:[si + 1h], ASCII_CODE_ENTER 
+        cmp byte ptr ds:[si], TERM_SYM 
         jne @@next
 
 
@@ -136,27 +136,31 @@ Start:
     ;------------------------------------------------------------------
     ;Entry:   none
     ;Exit:    flagWrongPassword
-    ;Destroy: ax, di, si, es, df
-    ;Local var: [bp - 2] - original password length
+    ;Destroy: ax, bx, di, si, es, df
     ;------------------------------------------------------------------
     CheckPassword proc
-        push bp             
-        mov  bp, sp         
-        sub  sp, 2d * 1d    ;1 local variable
-    
-        mov di, offset Password  ;set addres
-        call Strlen
-
-        mov word ptr [bp - 2], bx   ;save original password length
 
         mov flagWrongPassword, FALSE
 
-        cld                         ;df = 0
-        mov si, offset CurPassword  ;di = addres curPasswi=ord
-        xor di, di                  ;free counter
+        mov di, offset curPassword  ;set addres
+        call Strlen                 ;calc current entry password length
+        mov si, bx                  ;save current entry password length
+
+        mov di, offset Password     ;set addres
+        call Strlen                 ;calc original entry password length
+
+        cmp si, bx                  ;check length current password and orginal password
+        je @@curLenIscorrect
+            mov al, byte ptr fictionTrue
+            mov flagWrongPassword, al
+        @@curLenIscorrect:
+
+        mov si, offset CurPassword  ;set addres
+        mov di, offset CurPassword  ;set addres
 
         mov cl, ENCRYPT_KEY
 
+        cld                         ;df = 0
         @@next:
             lodsb
 
@@ -165,29 +169,25 @@ Start:
 
             call EncryptSymbol
 
-            cmp al, byte ptr Password[di] ;check curPassword symbol with original Password symbol 
-            je @@isEqual
-                mov al, byte ptr fictionTrue
-                mov flagWrongPassword, al
-            @@isEqual:
-
-            inc di  ;di++
+            stosb
 
         jmp @@next
 
         @@break:
 
-        sub si, offset curPassword + 1h  ;get corret length read password
+        mov si, offset Password     ;set addres
+        call GetHash                ;calc original entry password hash
+        mov di, ax                  ;save original entry password hash
+
+        mov si, offset curPassword  ;set addres
+        call GetHash                ;calc current password hash
         
-        
-        cmp si, word ptr [bp - 2]   ;check curren length password
-        je @@curLenIscorrect
+        cmp di, ax                  ;check hash current password and orginal password
+        je @@curHashIscorrect
             mov al, byte ptr fictionTrue
             mov flagWrongPassword, al
-        @@curLenIscorrect:
+        @@curHashIscorrect:
 
-        mov sp, bp
-        pop bp
         ret
     CheckPassword endp 
 
@@ -231,7 +231,7 @@ pspJump dw 00h
 
 fictionTrue db 0
 
-Password db 7dh, 2ah, 2ah, 1fh, 56h, 27h, 30h, 99h, 26h, 57h, 71h, 5fh, 6eh, TERM_SYM
+Password db 8eh, 3bh, 3bh, 30h, 67h, 38h, 41h, 2fh, 37h, 68h, 82h, 70h, 7fh, TERM_SYM
 
 MessageSuccess db "SUCCESS", TERM_SYM
 MessageFailure db "FAILURE", TERM_SYM

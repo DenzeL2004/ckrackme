@@ -12,7 +12,7 @@ RED_ON_BLACK_COL   equ 0ch ;red   clour on black background
 TERM_SYM equ '$'
 
 
-HASH_PW	equ 121d
+HASH_PW	equ 101d
 
 
 

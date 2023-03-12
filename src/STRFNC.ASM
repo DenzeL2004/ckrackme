@@ -47,9 +47,10 @@ StrPrintToVidmem endp
 ;-----------------------------------------------------------------
 Strlen proc
     cld      ;setting the df flag to zero 
-    
+
     mov al, TERM_SYM ;set al terminate symbol
     
+    xor bx, bx ;free counter 
     @@next:
         inc bx  ;length++
         scasb   ;check current symbol
